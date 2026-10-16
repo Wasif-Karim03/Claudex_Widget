@@ -1,4 +1,4 @@
-# Claudex: session handoff (2026-10-16)
+# Claudex: session handoff (2026-10-16, second session)
 
 ## Goal
 A macOS widget that sits under the camera notch and shows live Claude and Codex usage: % left, reset countdown and plan for each window, which model is in use per live session, and cute animated pixel mascots. The look should be compact, polished and animated. Push work to https://github.com/Wasif-Karim03/Claudex_Widget (a private repo, branch `main`).
@@ -21,17 +21,15 @@ A macOS widget that sits under the camera notch and shows live Claude and Codex 
 - Codex model and cwd fall back to the first 64KB of the file, because real rollouts record them only near the start. This is deliberate: the inspector flagged it and we rejected that finding.
 - Within a single JSON line the search uses sorted-key order. "Last wins" applies only across lines.
 
-## Open findings (Codex inspection, `artifacts/claudex-vjuoo5d7/result.json`)
-1. **Codex fallback ignores report time.** When the newest rollout has no limits, the fallback takes the first older candidate that has retained limits without comparing when each was reported. It should compare report times.
-2. **Codex freshness.** A report that is still in the tail never goes stale. Freshness should come from when the report was made and whether its reset time has passed. `codexObservedAt` is renewed on every scan and shouldn't be.
-3. **Claude retained metadata is evicted.** The model and cwd we keep for a session are dropped once it's idle for more than 2 minutes, so a resumed session loses its model. Keep that lightweight metadata separately from the parse cache.
-4. **Codex headline.** The headline uses the first live session that has a model. It should come only from the newest rollout, as the Claude side already does.
+## Done this session
+- The 4 Codex-inspection findings are fixed, with regression tests (75 tests pass): limits picked by report time; freshness from reset or later use; metadata kept for every existing log; Codex headline from the newest rollout only.
+- CPU: mascot ticks now share an absolute 8/4/2 fps grid (working/idle/sleepy), so there is one SwiftUI pass per tick. About 15% went down to about 11% while a session is working. Unmounting the hidden card only saved about 1.8 points, so that was not kept.
+- Redesign: one black surface with a hairline between the columns, no glass tiles, glows, gradients or chips. Big tabular % numbers sit over thin flat bars. SF Pro is used for words and SF Mono for model, plan and countdowns. The mini rings are solid colour.
+- Dev aids: `CLAUDEX_PIN_EXPANDED=1` keeps the card open. `CLAUDEX_PIN_EXPANDED=1 CLAUDEX_SNAPSHOT=/path.png .build/debug/Claudex` renders the card to a PNG and quits (`ImageRenderer`, needs no screen-recording permission; the gear menu shows as a placeholder there).
 
 ## Next steps
-- Get the user's feedback on the look after they run the app.
-- Optionally fix the 4 open findings above.
-- Bring CPU down from about 10% while both mascots are animating, for example with a lower frame rate or by pausing when collapsed and idle.
-- Manual checks still to do: click-through, Reduce Motion, Launch at Login (needs the app in /Applications), and a display without a notch.
+- Get the user's reaction to the redesign. The collapsed pill was only touched for ring colour.
+- Manual checks still to do: click-through, Reduce Motion, Launch at Login (needs /Applications), and a display without a notch.
 
 ## Key files
 - `Sources/ClaudexCore/Claude/ClaudeUsageClient.swift`: token, HTTP, throttle and backoff.

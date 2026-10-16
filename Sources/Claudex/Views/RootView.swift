@@ -66,11 +66,8 @@ struct RootView: View {
             // The band beside the camera housing.
             HStack(alignment: .center) {
                 Text("claudex")
-                    .font(Theme.font(11, .heavy))
-                    .tracking(0.4)
-                    .foregroundStyle(LinearGradient(colors: [Theme.claudeEnd, Theme.codexStart],
-                                                    startPoint: .leading, endPoint: .trailing))
-                    .opacity(0.85)
+                    .font(Theme.mono(10.5, .medium))
+                    .foregroundStyle(Theme.tertiaryText)
                 Spacer()
                 GearButton(model: model)
             }
@@ -79,12 +76,16 @@ struct RootView: View {
             .opacity(expanded ? 1 : 0)
             .animation(expanded ? morph.delay(0.2) : .easeOut(duration: 0.1), value: expanded)
 
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .top, spacing: 0) {
                 stagger(ProviderCard(snapshot: model.claude, now: model.now, revealed: expanded), delay: 0.06)
+                Rectangle().fill(Theme.hairline).frame(width: 0.5)
+                    .padding(.vertical, 6)
+                    .opacity(expanded ? 1 : 0)
+                    .animation(expanded ? morph.delay(0.1) : .easeOut(duration: 0.1), value: expanded)
                 stagger(ProviderCard(snapshot: model.codex, now: model.now, revealed: expanded), delay: 0.12)
             }
-            .padding(.horizontal, NotchShape.expandedTop + 4)
-            .padding(.top, 4)
+            .padding(.horizontal, NotchShape.expandedTop)
+            .padding(.top, 6)
             .padding(.bottom, 12)
         }
     }

@@ -21,8 +21,7 @@ struct MiniRing: View {
             Circle()
                 .trim(from: 0, to: leftPercent == nil ? 0 : max(0.02, fraction))
                 .stroke(
-                    low ? AnyShapeStyle(Theme.worried) : AnyShapeStyle(AngularGradient(
-                        colors: Theme.colors(kind) + [Theme.colors(kind)[0]], center: .center)),
+                    low ? Theme.worried : Theme.tint(kind),
                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(Theme.motion(.spring(response: 0.6, dampingFraction: 0.85), reduceMotion: reduceMotion),

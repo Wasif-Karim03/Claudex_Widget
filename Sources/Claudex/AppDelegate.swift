@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var suppressHoverExpand = false
 
     static let collapseDelay: TimeInterval = 0.6
+    /// Development aid: `CLAUDEX_PIN_EXPANDED=1` keeps the card open for screenshots.
+    private let pinExpanded = ProcessInfo.processInfo.environment["CLAUDEX_PIN_EXPANDED"] == "1"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let panel = NotchPanel(contentRect: .zero)
@@ -27,6 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutPanel()
         panel.orderFrontRegardless()
         model.start()
+        if pinExpanded { setExpanded(true) }
+        if let path = ProcessInfo.processInfo.environment["CLAUDEX_SNAPSHOT"] { snapshot(to: path) }
 
         NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
@@ -59,6 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let liveLines = hitLines.update(target: model.liveLines, now: now)
         let inside = HitRegion.contains(mouse, region: region, layout: model.layout, liveLines: liveLines, screenFrame: screenFrame)
         if panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+        if pinExpanded { return }
 
         let inPill = HitRegion.contains(mouse, region: .pill, layout: model.layout, liveLines: model.liveLines, screenFrame: screenFrame)
         if suppressHoverExpand {
@@ -106,6 +111,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         expandedAt = expanded ? Date() : nil
         withAnimation(Theme.morphAnimation(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
             model.isExpanded = expanded
+        }
+    }
+
+    /// Development aid: renders the expanded card to a PNG a few seconds after launch
+    /// (once data has loaded), then quits. Needs no screen-recording permission.
+    private func snapshot(to path: String) {
+        model.isExpanded = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [model] in
+            MainActor.assumeIsolated {
+                let size = model.layout.panelSize
+                let view = RootView(model: model, onToggle: {})
+                    .frame(width: size.width, height: size.height)
+                    .background(Color(white: 0.16))
+                let renderer = ImageRenderer(content: view)
+                renderer.scale = 2
+                if let image = renderer.cgImage {
+                    let rep = NSBitmapImageRep(cgImage: image)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                }
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 }

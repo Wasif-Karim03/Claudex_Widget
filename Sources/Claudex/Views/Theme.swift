@@ -10,14 +10,14 @@ enum Theme {
     static let codexEnd = Color(hex: 0x3BB3C9)
 
     static let worried = Color(hex: 0xFF5A3C)
-    static let active = Color(hex: 0x4ADE80)
+    static let active = Color(hex: 0x5BD08A)
     static let idle = Color.white.opacity(0.28)
 
-    static let primaryText = Color.white.opacity(0.94)
-    static let secondaryText = Color.white.opacity(0.55)
-    static let tertiaryText = Color.white.opacity(0.36)
-    static let track = Color.white.opacity(0.09)
-    static let hairline = Color.white.opacity(0.10)
+    static let primaryText = Color.white.opacity(0.92)
+    static let secondaryText = Color.white.opacity(0.56)
+    static let tertiaryText = Color.white.opacity(0.34)
+    static let track = Color.white.opacity(0.08)
+    static let hairline = Color.white.opacity(0.08)
 
     static func gradient(_ kind: ProviderKind) -> LinearGradient {
         LinearGradient(colors: colors(kind), startPoint: .leading, endPoint: .trailing)
@@ -32,8 +32,14 @@ enum Theme {
 
     static func tint(_ kind: ProviderKind) -> Color { colors(kind)[0] }
 
+    /// SF Pro for words.
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        .system(size: size, weight: weight)
+    }
+
+    /// SF Mono for machine-ish detail: model ids, plans, countdowns.
+    static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
     }
 
     static let morphSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
