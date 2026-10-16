@@ -128,19 +128,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if status == .enabled || status == .requiresApproval { UserDefaults.standard.set(true, forKey: key) }
     }
 
-    /// Development aid: renders the expanded card to a PNG a few seconds after launch
-    /// (once data has loaded), then quits. Needs no screen-recording permission.
+    /// Development aid: renders the widget to a PNG a few seconds after launch (once data
+    /// has loaded), then quits. Needs no screen-recording permission. The background is
+    /// transparent and the image is cropped to the notch shape. Set
+    /// `CLAUDEX_SNAPSHOT_STATE=collapsed` for the collapsed pill.
     private func snapshot(to path: String) {
-        model.isExpanded = true
+        let collapsed = ProcessInfo.processInfo.environment["CLAUDEX_SNAPSHOT_STATE"] == "collapsed"
+        model.isSnapshot = true
+        model.isExpanded = !collapsed
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [model] in
             MainActor.assumeIsolated {
-                let size = model.layout.panelSize
-                let view = RootView(model: model, onToggle: {})
-                    .frame(width: size.width, height: size.height)
-                    .background(Color(white: 0.16))
-                let renderer = ImageRenderer(content: view)
+                let layout = model.layout
+                let panel = layout.panelSize
+                let shape = layout.shapeSize(expanded: !collapsed, liveLines: model.liveLines)
+                let renderer = ImageRenderer(content: RootView(model: model, onToggle: {})
+                    .frame(width: panel.width, height: panel.height))
                 renderer.scale = 2
-                if let image = renderer.cgImage {
+                let crop = CGRect(x: (panel.width - shape.width) / 2 * 2, y: 0,
+                                  width: shape.width * 2, height: shape.height * 2)
+                if let image = renderer.cgImage?.cropping(to: crop) {
                     let rep = NSBitmapImageRep(cgImage: image)
                     try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
                 }

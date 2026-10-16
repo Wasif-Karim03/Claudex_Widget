@@ -69,7 +69,12 @@ struct RootView: View {
                     .font(Theme.mono(10.5, .medium))
                     .foregroundStyle(Theme.tertiaryText)
                 Spacer()
-                GearButton(model: model)
+                if model.isSnapshot {
+                    // ImageRenderer cannot draw a Menu; show its icon as it looks on screen.
+                    Image(systemName: "gearshape.fill").font(.system(size: 10, weight: .semibold)).opacity(0.4)
+                } else {
+                    GearButton(model: model)
+                }
             }
             .padding(.horizontal, NotchShape.expandedTop + 12)
             .frame(height: layout.notchHeight)

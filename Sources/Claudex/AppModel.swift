@@ -15,6 +15,8 @@ final class AppModel {
         }
     }
     var layout = NotchLayout.fallback
+    /// True while rendering README screenshots (`CLAUDEX_SNAPSHOT`).
+    @ObservationIgnored var isSnapshot = false
 
     /// Lines needed by the taller "Live now" list; sizes the expanded card.
     var liveLines: Int { NotchLayout.liveLines(for: [claude.live.count, codex.live.count]) }

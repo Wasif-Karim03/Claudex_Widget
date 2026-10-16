@@ -1,89 +1,111 @@
 # Claudex
 
-A tiny macOS widget that lives under the camera notch and shows how much **Claude** and **Codex** usage you have left.
+[![Tests](https://github.com/Wasif-Karim03/Claudex_Widget/actions/workflows/tests.yml/badge.svg)](https://github.com/Wasif-Karim03/Claudex_Widget/actions/workflows/tests.yml)
 
-Collapsed, it is a notch-black pill with two little pixel mascots and progress rings either side of the camera. Hover it and it springs open into a card showing, for each tool:
-
-- **% left** in each rate-limit window (Claude: 5-hour and weekly; Codex: whatever windows the CLI reports), as animated capsule bars
-- **reset countdown** for each window
-- **plan** (e.g. Max, Pro)
-- **current model**: the model of the most recently active session (e.g. Opus 5.5, GPT-6.1 Sol)
-- **Live now**: every session whose log changed in the last ~2 minutes, with its model and project, including Claude Code subagents (marked *subagent*). The top three are listed, then "+N more".
-
-### The mascots
-
-Claude is the blocky orange pixel critter from Claude Code; Codex is a mint pixel robot with an antenna and a `>_` screen face. They react to what is happening:
-
-- **working** (a session is writing): they bounce, step their legs, tap their arms, throw little typing sparkles, and Codex's antenna light blinks
-- **idle**: slow breathing and the occasional blink
-- **asleep** (nothing for over 10 minutes): eyes closed, floating "z"
-- **worried** (any window over 80% used): sweat drop, redder tint and a nervous wiggle
-
-They animate in the collapsed pill too. With *Reduce Motion* on, they hold still.
-
-## Screenshots
-
-Collapsed:
-
-![Collapsed pill](docs/screenshots/collapsed.png)
-
-Expanded:
+A small macOS widget that lives under the camera notch and shows how much of your **Claude** and **Codex** usage limits you have used, with two animated pixel mascots.
 
 ![Expanded card](docs/screenshots/expanded.png)
 
+Collapsed, it blends into the notch with a mascot and a ring on each side of the camera:
+
+![Collapsed pill](docs/screenshots/collapsed.png)
+
+Hover over it to open the card. For each tool it shows:
+
+- **Usage rings**, one per limit, filled by % used. Claude shows the session (5-hour) window, the weekly window, and any per-model weekly limit such as *Fable week*. Codex shows whatever windows the CLI reports. The numbers match Claude Code's `/usage`.
+- **When each limit resets**
+- **Your plan** (e.g. Max, Pro) and the **model** of your most recent session
+- **Live sessions**: every session written to in the last two minutes, with its project and model. Claude Code subagents are shown indented under the sessions.
+
+Rings turn red above 80% used.
+
+### The mascots
+
+Claude is a blocky orange critter and Codex a teal robot. They react to what you're doing:
+
+- **Working** (a session is writing): they bounce and throw little typing sparkles
+- **Idle**: slow breathing and the occasional blink
+- **Asleep** (nothing for over 10 minutes): eyes closed, floating z's
+- **Worried** (a limit over 80% used): a nervous wiggle
+
+With *Reduce Motion* on, they hold still.
+
 ## Requirements
 
-- macOS 14 or later (Apple silicon)
-- Swift 6 toolchain (Xcode 16 or later)
-- [Claude Code](https://claude.com/claude-code) installed and signed in (Claudex reads its login from the keychain)
-- The Codex CLI used at least once, so `~/.codex/sessions` has a session log
+- An Apple silicon Mac running macOS 14 or later. It works best on a MacBook with a notch; on other displays it sits at the top centre of the screen.
+- Xcode 16 or later, or another Swift 6 toolchain, to build it
+- [Claude Code](https://claude.com/claude-code) installed and signed in. Claudex reads Claude Code's login from your keychain to fetch usage.
+- For Codex: the [Codex CLI](https://github.com/openai/codex), used at least once
 
-## Build and run
+You can use just one of the two. The other side shows that it has nothing to report.
+
+## Install
 
 ```sh
-# Run straight from the package
-swift run Claudex
-
-# Or build a signed app bundle
-scripts/bundle.sh && open build/Claudex.app
+git clone https://github.com/Wasif-Karim03/Claudex_Widget.git
+cd Claudex_Widget
+./scripts/install.sh
 ```
 
-`scripts/bundle.sh` builds a release binary and wraps it in `build/Claudex.app` (ad-hoc signed, `LSUIElement`, so there is no Dock icon).
+The script builds a release version, copies `Claudex.app` to `/Applications` and opens it. The first time it runs from there, it adds itself to **Login Items**, so it starts with your Mac. To turn that off, use **Launch at Login** in the gear menu or System Settings › General › Login Items. Once you turn it off, it stays off.
 
-**Launch at Login**: move `Claudex.app` to `/Applications` first, then turn on *Launch at Login* from the gear menu (or right-click the widget). macOS may ask you to approve it in System Settings › General › Login Items. The toggle is disabled when running via `swift run`.
+Claudex reads the token with macOS's built-in `security` tool, so the first time it may show a keychain prompt asking to let `security` access *Claude Code-credentials*. Choose **Always Allow**.
 
-The gear menu and the right-click menu also have **Refresh** and **Quit**.
+To update, pull and run `./scripts/install.sh` again. To uninstall, quit Claudex from the gear menu, remove it from Login Items and delete `/Applications/Claudex.app`.
+
+The gear menu, or a right-click on the widget, has **Refresh**, **Launch at Login** and **Quit**.
 
 ## Where the data comes from
 
 | | Source |
 | --- | --- |
-| Claude usage | `GET https://api.anthropic.com/api/oauth/usage` with Claude Code's OAuth token |
-| Claude plan | `subscriptionType` in Claude Code's keychain entry, if present |
-| Claude sessions, models, activity | transcripts at `~/.claude/projects/<project>/*.jsonl` and subagent logs at `~/.claude/projects/<project>/<session>/subagents/agent-*.jsonl`; project name from the transcript's `cwd` (or, failing that, the decoded folder name) |
-| Codex usage, plan, sessions, models | rollouts at `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`; project name from the session's `cwd` |
+| Claude usage | `GET https://api.anthropic.com/api/oauth/usage` with Claude Code's sign-in token |
+| Claude plan | Claude Code's keychain entry |
+| Claude sessions and models | Claude Code's transcripts in `~/.claude/projects/` (including subagent logs) |
+| Codex usage, plan, sessions and models | Codex's session logs in `~/.codex/sessions/` |
 
-Both log directories are only ever read, never written.
+The Claude usage endpoint is the one Claude Code itself uses. It is not a documented public API, so it may change without notice.
 
 ## Privacy
 
-- The Claude OAuth token is read with `/usr/bin/security find-generic-password -s "Claude Code-credentials" -w` **fresh on every poll**. It is held in memory only for that request, sent only to `api.anthropic.com`, and never stored, cached, logged or written to disk or UserDefaults.
-- The first read may show a one-time keychain prompt asking to let `security` access the item; choose *Always Allow* to avoid repeats.
-- Claudex never refreshes the token. If it has expired, the card shows *Sign in to Claude Code*; using Claude Code once refreshes it.
-- Nothing is sent anywhere else. There are no analytics.
-- When decoding project folder names, Claudex never lists privacy-protected folders (Desktop, Documents, Downloads, media folders, Library, external volumes), so it does not trigger macOS folder-access prompts.
+- The Claude sign-in token is read from the keychain fresh for each request. It is sent only to `api.anthropic.com`, and is never stored, cached, logged or written to disk.
+- Claudex never refreshes the token. If it has expired, the card asks you to sign in to Claude Code; using Claude Code once fixes it.
+- Session logs are only read, never written. Only the last 64 KB of each live log is read.
+- Nothing else leaves your Mac. There are no analytics.
+- Claudex never lists privacy-protected folders such as Desktop, Documents or Downloads, so it won't trigger macOS folder-access prompts.
 
-## Polling
+## How often it updates
 
-- **Claude usage**: every 60 seconds. On rate limiting (429), server errors or network failures it backs off, doubling up to 15 minutes (and honours `Retry-After`); it drops back to 60 seconds after a success. When sign-in is needed it checks every 5 minutes. Manual refresh never polls more often than once a minute.
-- **Local session logs**: every 3 seconds, Claudex checks file dates only (no reading) to find live sessions. It parses only the live logs and the newest one, only when they have changed, and reads only their last 64 KB. For a Codex log whose model or folder isn't in that tail, it also reads the first 64 KB.
-- If a fetch fails after a success, the last numbers stay on screen marked *stale*.
+- **Claude usage**: once a minute. On errors or rate limiting it backs off, up to 15 minutes, and honours `Retry-After`.
+- **Session logs**: checked every 3 seconds by modification date. A log is parsed only when it has changed.
+- If an update fails, the last numbers stay on screen, dimmed and marked with how old they are.
 
 ## Development
 
 ```sh
 swift build
-swift test
+swift test                                    # core logic: parsing, usage client, formatting
+./scripts/bundle.sh && open build/Claudex.app # run a local build without installing
 ```
 
-`ClaudexCore` (models, parsing, the usage client) is Foundation-only and covered by tests; the `Claudex` executable holds the AppKit panel and SwiftUI views.
+The code is split into two parts:
+
+- `ClaudexCore` holds the models, log parsing and usage client. It uses only Foundation and has the tests.
+- `Claudex` is the app: an AppKit panel with SwiftUI views.
+
+To render the widget to a PNG without screen-recording permission (this is how the screenshots above were made):
+
+```sh
+CLAUDEX_PIN_EXPANDED=1 CLAUDEX_SNAPSHOT=card.png .build/debug/Claudex
+CLAUDEX_PIN_EXPANDED=1 CLAUDEX_SNAPSHOT_STATE=collapsed CLAUDEX_SNAPSHOT=pill.png .build/debug/Claudex
+```
+
+Issues and pull requests are welcome.
+
+## Disclaimer
+
+Claudex is an independent project. It is not affiliated with or endorsed by Anthropic or OpenAI. Claude is a trademark of Anthropic; Codex is a trademark of OpenAI.
+
+## License
+
+[MIT](LICENSE)
