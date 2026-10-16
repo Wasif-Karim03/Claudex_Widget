@@ -52,7 +52,8 @@ public struct CodexParsed: Sendable, Equatable {
     }
 }
 
-/// Read-only view of Codex CLI rollouts under `~/.codex/sessions/YYYY/MM/DD/`.
+/// Read-only view of Codex CLI rollouts under `~/.codex/sessions/YYYY/MM/DD/`, plus any
+/// other Codex homes in `defaultSessionsDirs`.
 public struct CodexSessionReader: Sendable {
     public struct Result: Sendable, Equatable {
         public let file: URL
@@ -62,11 +63,23 @@ public struct CodexSessionReader: Sendable {
 
     public static let candidateCount = 5
 
-    public let sessionsDir: URL
+    public let sessionsDirs: [URL]
 
-    public init(sessionsDir: URL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent(".codex/sessions", isDirectory: true)) {
-        self.sessionsDir = sessionsDir
+    /// `~/.codex/sessions`, and the sessions of the Codex home Claude Code's /team pipeline
+    /// runs `codex exec` with (`CODEX_HOME=~/.claude/team-runs/.codex-home`). A missing
+    /// directory is simply empty.
+    public static var defaultSessionsDirs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [".codex/sessions", ".claude/team-runs/.codex-home/sessions"]
+            .map { home.appendingPathComponent($0, isDirectory: true) }
+    }
+
+    public init(sessionsDirs: [URL] = Self.defaultSessionsDirs) {
+        self.sessionsDirs = sessionsDirs
+    }
+
+    public init(sessionsDir: URL) {
+        self.init(sessionsDirs: [sessionsDir])
     }
 
     /// The `candidateCount` newest rollouts across every date dir.
@@ -77,9 +90,19 @@ public struct CodexSessionReader: Sendable {
     /// Every `rollout-*.jsonl` in every date dir (stat only, no age cutoff), newest first.
     public func allRollouts(fileManager: FileManager = .default) -> [(url: URL, modified: Date)] {
         let keys: Set<URLResourceKey> = [.contentModificationDateKey, .isRegularFileKey]
-        guard let enumerator = fileManager.enumerator(
-            at: sessionsDir, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
-        ) else { return [] }
+        var files: [(url: URL, modified: Date)] = []
+        for dir in sessionsDirs {
+            guard let enumerator = fileManager.enumerator(
+                at: dir, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles]
+            ) else { continue }
+            files += rollouts(in: enumerator, keys: keys)
+        }
+        files.sort { $0.modified > $1.modified }
+        return files
+    }
+
+    private func rollouts(in enumerator: FileManager.DirectoryEnumerator,
+                          keys: Set<URLResourceKey>) -> [(url: URL, modified: Date)] {
         var files: [(url: URL, modified: Date)] = []
         for case let url as URL in enumerator {
             let name = url.lastPathComponent
@@ -89,7 +112,6 @@ public struct CodexSessionReader: Sendable {
                   let modified = values.contentModificationDate else { continue }
             files.append((url, modified))
         }
-        files.sort { $0.modified > $1.modified }
         return files
     }
 

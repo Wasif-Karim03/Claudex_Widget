@@ -299,7 +299,7 @@ struct PixelMascot: View {
 /// Ticks fall on a grid anchored to the reference date, and every rate divides 8, so all
 /// mascots on screen update in the same frames: one SwiftUI graph update per tick rather
 /// than one per mascot. That shared update is most of an always-on widget's CPU cost.
-private struct PixelSchedule: TimelineSchedule {
+struct PixelSchedule: TimelineSchedule {
     let live: Bool
     let fps: Double
 

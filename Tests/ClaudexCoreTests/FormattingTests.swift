@@ -77,3 +77,22 @@ import Testing
         #expect(snapshot(10, 85).primaryWindow?.windowMinutes == 300)
     }
 }
+
+@Suite struct WaterFormatterTests {
+    @Test(arguments: [(0.0, "0"), (0.004, "0.00"), (0.42, "0.42"), (12.63, "12.6"), (99.94, "99.9"), (140.4, "140")])
+    func litres(value: Double, expected: String) {
+        #expect(WaterFormatter.litres(value) == expected)
+    }
+
+    @Test(arguments: [
+        (0.0, "Not a drop yet"),
+        (0.05, "≈ 1 glass of water"),
+        (0.6, "≈ 2 glasses of water"),
+        (2.0, "≈ 1 day of drinking water"),
+        (12.6, "≈ 6.3 days of drinking water"),
+        (40.0, "≈ 20 days of drinking water"),
+    ])
+    func comparison(value: Double, expected: String) {
+        #expect(WaterFormatter.comparison(value) == expected)
+    }
+}

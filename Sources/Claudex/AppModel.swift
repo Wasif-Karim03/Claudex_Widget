@@ -6,6 +6,8 @@ import Observation
 final class AppModel {
     var claude = ProviderSnapshot(kind: .claude)
     var codex = ProviderSnapshot(kind: .codex)
+    /// Today's tokens across both tools, for the water estimate.
+    var water = TokenTally.Today()
     /// Clock used by countdowns. Ticks every second while expanded, every 30s collapsed.
     var now = Date()
     var isExpanded = false {
@@ -28,6 +30,8 @@ final class AppModel {
     /// The Claude loop's current wait; cancelling it wakes the loop early.
     @ObservationIgnored private var claudeWait: Task<Void, Never>?
     @ObservationIgnored private var localTask: Task<Void, Never>?
+    @ObservationIgnored private var waterTask: Task<Void, Never>?
+    @ObservationIgnored private var tally = TokenTally()
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var claudeFetchedOnce = false
     /// When the Codex limits on show were reported; nil until a scan first finds some.
@@ -38,6 +42,7 @@ final class AppModel {
     func start() {
         startClaudeLoop()
         startLocalLoop()
+        startWaterLoop()
         clockTask = Task { [weak self] in
             var lastTick = Date()
             while !Task.isCancelled {
@@ -120,6 +125,23 @@ final class AppModel {
                 }.value
                 if Task.isCancelled { return }
                 self?.applyLocal(result, now: current)
+                try? await Task.sleep(for: Self.localInterval)
+            }
+        }
+    }
+
+    private func startWaterLoop() {
+        waterTask?.cancel()
+        waterTask = Task { [weak self, scanner] in
+            while !Task.isCancelled {
+                guard let previous = self?.tally else { return }
+                let current = Date()
+                let next = await Task.detached(priority: .utility) {
+                    scanner.tally(previous, now: current)
+                }.value
+                if Task.isCancelled { return }
+                self?.tally = next
+                if self?.water != next.today { self?.water = next.today }
                 try? await Task.sleep(for: Self.localInterval)
             }
         }

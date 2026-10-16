@@ -19,6 +19,12 @@ Hover over it to open the card. For each tool it shows:
 
 Rings turn red above 80% used.
 
+### Water today
+
+Along the bottom of the card is a rough estimate of the water your Claude and Codex use took today. Each mascot stands in its own pixel-art tub, and the water rises up its legs as that tool burns through the day. Drops fall into the tub of whichever tool is working. Hover the band to see how the estimate is made.
+
+It counts today's tokens from the session logs and weights them by roughly how much compute they take (cache reads 0.1×, input 1×, cache writes 1.25×, output 5×). It then assumes about 0.4 J per input-equivalent token and 3.6 L of water per kWh, which covers data-centre cooling plus the water used to generate the electricity. Anthropic and OpenAI don't publish per-token figures, so treat the number as an order of magnitude, not a measurement. The constants are in `Sources/ClaudexCore/Water/TokenTally.swift`.
+
 ### The mascots
 
 Claude is a blocky orange critter and Codex a teal robot. They react to what you're doing:
@@ -62,7 +68,7 @@ The gear menu, or a right-click on the widget, has **Refresh**, **Launch at Logi
 | Claude usage | `GET https://api.anthropic.com/api/oauth/usage` with Claude Code's sign-in token |
 | Claude plan | Claude Code's keychain entry |
 | Claude sessions and models | Claude Code's transcripts in `~/.claude/projects/` (including subagent logs) |
-| Codex usage, plan, sessions and models | Codex's session logs in `~/.codex/sessions/` |
+| Codex usage, plan, sessions and models | Codex's session logs in `~/.codex/sessions/`, plus `~/.claude/team-runs/.codex-home/sessions/` (Codex runs from Claude Code's /team pipeline) when it exists |
 
 The Claude usage endpoint is the one Claude Code itself uses. It is not a documented public API, so it may change without notice.
 
@@ -70,7 +76,7 @@ The Claude usage endpoint is the one Claude Code itself uses. It is not a docume
 
 - The Claude sign-in token is read from the keychain fresh for each request. It is sent only to `api.anthropic.com`, and is never stored, cached, logged or written to disk.
 - Claudex never refreshes the token. If it has expired, the card asks you to sign in to Claude Code; using Claude Code once fixes it.
-- Session logs are only read, never written. Only the last 64 KB of each live log is read.
+- Session logs are only read, never written. For live sessions only the last 64 KB is read. For the water estimate, logs changed today are read once in full and then only the newly appended lines; only token counts are kept, never message contents.
 - Nothing else leaves your Mac. There are no analytics.
 - Claudex never lists privacy-protected folders such as Desktop, Documents or Downloads, so it won't trigger macOS folder-access prompts.
 
@@ -78,6 +84,7 @@ The Claude usage endpoint is the one Claude Code itself uses. It is not a docume
 
 - **Claude usage**: once a minute. On errors or rate limiting it backs off, up to 15 minutes, and honours `Retry-After`.
 - **Session logs**: checked every 3 seconds by modification date. A log is parsed only when it has changed.
+- **Water**: today's token counts update with the same 3-second check and restart at midnight.
 - If an update fails, the last numbers stay on screen, dimmed and marked with how old they are.
 
 ## Development

@@ -27,4 +27,12 @@ struct LocalScanner: Sendable {
         let codex = codexReader.scan(now: now, cache: &cache.codexParsed)
         return LocalScanResult(claude: claude, codex: codex, cache: cache)
     }
+
+    /// Today's token tally. Kept apart from `scan` because the day's first pass reads
+    /// whole logs, and live sessions shouldn't wait on it.
+    func tally(_ previous: TokenTally, now: Date) -> TokenTally {
+        var tally = previous
+        tally.update(claudeFiles: claudeReader.sessionFiles(projectName: { $0 }), codexFiles: codexReader.allRollouts(), now: now)
+        return tally
+    }
 }

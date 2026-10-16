@@ -91,11 +91,25 @@ struct RootView: View {
             }
             .padding(.horizontal, NotchShape.expandedTop)
             .padding(.top, 6)
-            .padding(.bottom, 12)
+
+            stagger(waterBand, delay: 0.18)
+                .padding(.horizontal, NotchShape.expandedTop + 12)
+                .padding(.top, 4)
+                .padding(.bottom, 12)
         }
     }
 
-    private func stagger(_ card: ProviderCard, delay: Double) -> some View {
+    private var waterBand: WaterBand {
+        WaterBand(
+            water: model.water,
+            claude: .init(litres: model.water.claudeLitres, mood: model.claude.mood,
+                          activity: model.claude.activity(now: model.now)),
+            codex: .init(litres: model.water.codexLitres, mood: model.codex.mood,
+                         activity: model.codex.activity(now: model.now)),
+            animated: expanded)
+    }
+
+    private func stagger(_ card: some View, delay: Double) -> some View {
         card
             .opacity(expanded ? 1 : 0)
             // Reduce Motion: fade only, no scale or slide.

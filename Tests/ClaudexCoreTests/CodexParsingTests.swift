@@ -160,6 +160,20 @@ import Testing
         #expect(candidates.dropFirst().map(\.url.lastPathComponent) == ["rollout-31.jsonl", "rollout-30.jsonl", "rollout-29.jsonl", "rollout-28.jsonl"])
     }
 
+    @Test func mergesRolloutsFromEverySessionsDir() throws {
+        let dir = try TempDir()
+        defer { dir.cleanup() }
+        let base = Date(timeIntervalSince1970: 1_800_000_000)
+        try dir.write("main/2026/10/16/rollout-main.jsonl", "{}\n", modified: base)
+        try dir.write("team/.codex-home/sessions/2026/10/16/rollout-team.jsonl", "{}\n", modified: base.addingTimeInterval(60))
+        let reader = CodexSessionReader(sessionsDirs: [
+            dir.url.appendingPathComponent("main"),
+            dir.url.appendingPathComponent("team/.codex-home/sessions"),
+            dir.url.appendingPathComponent("missing"),
+        ])
+        #expect(reader.allRollouts().map(\.url.lastPathComponent) == ["rollout-team.jsonl", "rollout-main.jsonl"])
+    }
+
     @Test func activityIsAPureFunctionOfMtime() {
         let now = Date()
         #expect(CodexSessionReader.isActive(mtime: now.addingTimeInterval(-30), now: now))

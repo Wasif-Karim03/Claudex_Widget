@@ -90,3 +90,26 @@ public enum CountdownFormatter {
         }
     }
 }
+
+public enum WaterFormatter {
+    /// "0.42", "12.6", "140": two decimals under a litre, one under 100, then whole litres.
+    public static func litres(_ value: Double) -> String {
+        guard value.isFinite, value > 0 else { return "0" }
+        if value < 1 { return String(format: "%.2f", value) }
+        if value < 100 { return String(format: "%.1f", value) }
+        return String(format: "%.0f", value)
+    }
+
+    /// A familiar comparison: glasses (250 mL) under a day's drinking water, else days of it.
+    public static func comparison(_ value: Double) -> String {
+        guard value.isFinite, value > 0 else { return "Not a drop yet" }
+        let days = value / WaterEstimate.litresPerDay
+        if days < 1 {
+            let glasses = max(1, Int((value / 0.25).rounded()))
+            return glasses == 1 ? "≈ 1 glass of water" : "≈ \(glasses) glasses of water"
+        }
+        let shown = days < 10 ? String(format: "%.1f", days) : String(format: "%.0f", days)
+        if shown == "1.0" { return "≈ 1 day of drinking water" }
+        return "≈ \(shown) days of drinking water"
+    }
+}
