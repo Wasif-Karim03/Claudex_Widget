@@ -105,13 +105,19 @@ struct ProviderCard: View {
             if snapshot.windows.isEmpty {
                 StatusMessage(symbol: "hourglass", text: "No limits reported yet")
             } else {
-                HStack(alignment: .top, spacing: 18) {
-                    ForEach(Array(snapshot.windows.prefix(2).enumerated()), id: \.element.id) { index, window in
-                        WindowMetric(kind: snapshot.kind, window: window, now: now, revealed: revealed,
-                                     delay: 0.12 + Double(index) * 0.07)
+                let windows = Array(snapshot.windows.prefix(RingDial.maxRings))
+                HStack(alignment: .center, spacing: 12) {
+                    RingDial(kind: snapshot.kind, used: windows.map { $0.usedPercent / 100 }, revealed: revealed)
+                        .frame(width: 80, height: 80)
+                    VStack(alignment: .leading, spacing: windows.count > 2 ? 5 : 9) {
+                        ForEach(Array(windows.enumerated()), id: \.element.id) { index, window in
+                            RingLegendRow(window: window, color: RingDial.color(kind: snapshot.kind, ring: index,
+                                                                                 used: window.usedPercent / 100),
+                                          now: now,
+                                          showsReset: index == 0 || !Self.sameReset(window, windows[index - 1]))
+                        }
                     }
-                    // A lone window keeps a half-width slot, so both columns share one rhythm.
-                    if snapshot.windows.count == 1 { Color.clear.frame(maxWidth: .infinity, maxHeight: 1) }
+                    Spacer(minLength: 0)
                 }
                 .opacity(snapshot.isStale ? 0.55 : 1)
             }
@@ -146,6 +152,12 @@ struct ProviderCard: View {
         }
         .animation(Theme.motion(.spring(response: 0.4, dampingFraction: 0.85), reduceMotion: reduceMotion),
                    value: snapshot.live.map(\.id))
+    }
+
+    /// Resets within a minute of each other read as the same reset.
+    static func sameReset(_ a: UsageWindow, _ b: UsageWindow) -> Bool {
+        guard let x = a.resetsAt, let y = b.resetsAt else { return false }
+        return abs(x.timeIntervalSince(y)) < 60
     }
 
     static func ago(_ date: Date, now: Date, short: Bool = true) -> String {
@@ -192,80 +204,117 @@ struct LiveRow: View {
 
 // MARK: - Pieces
 
-/// % left as the hero number, a hairline bar, and which window it is with its reset.
-struct WindowMetric: View {
+/// Concentric rings, one per window, filled by how much is used (as Claude's `/usage`
+/// reports it): the outer ring is the first (shortest) window, inner ones the longer or
+/// model-specific ones. The centre shows the most-used window.
+struct RingDial: View {
     let kind: ProviderKind
-    let window: UsageWindow
-    let now: Date
+    /// Fraction used per window, outermost first.
+    let used: [Double]
     let revealed: Bool
-    let delay: Double
+
+    static let maxRings = 3
+    /// Used above this is a warning.
+    static let warnAbove = 0.8
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var low: Bool { window.leftPercent < 20 }
+    private var lineWidth: CGFloat { used.count > 2 ? 6 : 8 }
+    private var gap: CGFloat { used.count > 2 ? 2 : 3 }
+
+    /// The provider's colour outside, lighter tints inside; warning red when nearly spent.
+    static func color(kind: ProviderKind, ring: Int, used: Double) -> Color {
+        if used > warnAbove { return Theme.worried }
+        switch ring {
+        case 0: return Theme.tint(kind)
+        case 1: return Theme.innerTint(kind)
+        default: return Theme.innerTint(kind).opacity(0.6)
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 1) {
-                Text("\(Int(window.leftPercent.rounded()))")
-                    .font(.system(size: 26, weight: .semibold))
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: window.leftPercent))
-                Text("%")
-                    .font(Theme.font(13, .medium))
-                    .foregroundStyle(Theme.secondaryText)
-                Text("left")
-                    .font(Theme.font(10.5))
-                    .foregroundStyle(Theme.tertiaryText)
-                    .padding(.leading, 4)
-                Spacer(minLength: 0)
+        ZStack {
+            ForEach(Array(used.enumerated()), id: \.offset) { index, fraction in
+                let inset = CGFloat(index) * (lineWidth + gap) + lineWidth / 2
+                let clamped = max(0, min(1, fraction))
+                Circle()
+                    .stroke(Theme.track, lineWidth: lineWidth)
+                    .padding(inset)
+                Circle()
+                    .trim(from: 0, to: revealed && clamped > 0 ? max(0.01, clamped) : 0)
+                    .stroke(Self.color(kind: kind, ring: index, used: clamped),
+                            style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .padding(inset)
+                    .animation(reduceMotion ? .easeInOut(duration: 0.15)
+                               : (revealed ? .spring(response: 0.8, dampingFraction: 0.88).delay(0.12 + Double(index) * 0.08)
+                                  : .easeOut(duration: 0.1)),
+                               value: revealed)
+                    .animation(Theme.motion(.spring(response: 0.6, dampingFraction: 0.9), reduceMotion: reduceMotion),
+                               value: clamped)
             }
-            .foregroundStyle(low ? Theme.worried : Theme.primaryText)
-            .animation(Theme.motion(.snappy, reduceMotion: reduceMotion), value: window.leftPercent)
-            LineBar(kind: kind, fraction: window.leftPercent / 100, revealed: revealed, delay: delay)
-                .frame(height: 3)
-            HStack(spacing: 0) {
-                Text(window.label)
-                    .foregroundStyle(Theme.secondaryText)
-                Spacer(minLength: 4)
-                Text(CountdownFormatter.string(until: window.resetsAt, now: now))
-                    .foregroundStyle(Theme.tertiaryText)
-                    .contentTransition(.numericText())
+            if let most = used.max() {
+                VStack(spacing: -1) {
+                    Text("\(Int((most * 100).rounded()))%")
+                        .font(Theme.font(used.count > 2 ? 13 : 15, .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(most > Self.warnAbove ? Theme.worried : Theme.primaryText)
+                        .contentTransition(.numericText(value: most))
+                    Text("used")
+                        .font(Theme.font(8.5))
+                        .foregroundStyle(Theme.tertiaryText)
+                }
             }
-            .font(Theme.mono(10))
-            .monospacedDigit()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .help(CountdownFormatter.verbose(until: window.resetsAt, now: now))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(kind.displayName) \(Int(((used.max() ?? 0) * 100).rounded())) percent used")
     }
 }
 
-/// A flat, thin progress line in the provider's colour; red-orange when nearly spent.
-struct LineBar: View {
-    let kind: ProviderKind
-    let fraction: Double
-    let revealed: Bool
-    var delay: Double = 0
+/// Legend line for one ring: swatch, window, % left, and its reset underneath.
+struct RingLegendRow: View {
+    let window: UsageWindow
+    let color: Color
+    let now: Date
+    /// False when the window above resets at the same moment; the line would repeat it.
+    var showsReset = true
+
+    private var resetText: String {
+        let core = CountdownFormatter.string(until: window.resetsAt, now: now)
+        return core == "—" || core == "resetting…" ? core : "resets \(core)"
+    }
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var clamped: Double { max(0, min(1, fraction)) }
-
     var body: some View {
-        GeometryReader { geo in
-            let shown = revealed ? clamped : 0
-            ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track)
-                Capsule()
-                    .fill(clamped < 0.2 ? Theme.worried : Theme.tint(kind))
-                    .frame(width: shown > 0 ? max(geo.size.height, geo.size.width * shown) : 0)
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Circle().fill(color).frame(width: 7, height: 7)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 0.5 }
+                Text(window.label)
+                    .font(Theme.font(11))
+                    .foregroundStyle(Theme.secondaryText)
+                    .fixedSize()
+                Text("\(Int(window.usedPercent.rounded()))%")
+                    .font(Theme.font(15, .semibold))
+                    .monospacedDigit()
+                    .fixedSize()
+                    .foregroundStyle(window.usedPercent > RingDial.warnAbove * 100 ? Theme.worried : Theme.primaryText)
+                    .contentTransition(.numericText(value: window.usedPercent))
+                    .animation(Theme.motion(.snappy, reduceMotion: reduceMotion), value: window.usedPercent)
+            }
+            if showsReset {
+                Text(resetText)
+                .font(Theme.mono(10))
+                .lineLimit(1)
+                .fixedSize()
+                .monospacedDigit()
+                .foregroundStyle(Theme.tertiaryText)
+                .contentTransition(.numericText())
+                .padding(.leading, 13)
             }
         }
-        .animation(reduceMotion ? .easeInOut(duration: 0.15)
-                   : (revealed ? .spring(response: 0.7, dampingFraction: 0.9).delay(delay) : .easeOut(duration: 0.1)),
-                   value: revealed)
-        .animation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.6, dampingFraction: 0.9),
-                   value: clamped)
+        .help(CountdownFormatter.verbose(until: window.resetsAt, now: now))
     }
 }
 

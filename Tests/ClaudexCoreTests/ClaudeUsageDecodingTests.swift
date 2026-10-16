@@ -27,7 +27,7 @@ import Testing
 
     @Test func mapsToWindows() throws {
         let windows = try ClaudeUsageResponse.decode(Data(Self.sample.utf8)).toWindows()
-        #expect(windows.map(\.label) == ["5h", "Week"])
+        #expect(windows.map(\.label) == ["Session", "Week"])
         #expect(windows.map(\.windowMinutes) == [300, 10080])
         #expect(windows[0].leftPercent == 65)
     }
@@ -37,6 +37,24 @@ import Testing
         let response = try ClaudeUsageResponse.decode(Data(json.utf8))
         #expect(response.fiveHour == nil)
         #expect(response.toWindows().map(\.label) == ["Week"])
+    }
+
+    @Test func addsModelScopedWeeklyLimits() throws {
+        let json = #"""
+        {"five_hour": {"utilization": 62, "resets_at": "2026-10-16T08:50:00Z"},
+         "seven_day": {"utilization": 19, "resets_at": "2026-10-22T04:00:00Z"},
+         "limits": [
+          {"kind": "session", "percent": 62, "resets_at": "2026-10-16T08:49:59Z", "scope": null},
+          {"kind": "weekly_scoped", "percent": 4, "resets_at": "2026-10-22T03:59:59Z",
+           "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}},
+          {"kind": "weekly_scoped", "percent": "bad"},
+          42
+         ]}
+        """#
+        let windows = try ClaudeUsageResponse.decode(Data(json.utf8)).toWindows()
+        #expect(windows.map(\.label) == ["Session", "Week", "Fable week"])
+        #expect(windows.map(\.usedPercent) == [62, 19, 4])
+        #expect(windows[2].resetsAt == isoDate("2026-10-22T03:59:59.000Z"))
     }
 
     @Test func parsesZuluWithoutFraction() throws {

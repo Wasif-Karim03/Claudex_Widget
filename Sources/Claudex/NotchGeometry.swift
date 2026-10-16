@@ -9,7 +9,7 @@ struct NotchLayout: Equatable, Sendable {
     static let wingWidth: CGFloat = 64
     static let cardWidth: CGFloat = 500
     /// Card body height with a single line in the "Live now" lists.
-    static let cardBaseHeight: CGFloat = 190
+    static let cardBaseHeight: CGFloat = 220
     static let liveRowHeight: CGFloat = 21
     static let moreRowHeight: CGFloat = 17
     /// Tallest list: three sessions plus "+N more".

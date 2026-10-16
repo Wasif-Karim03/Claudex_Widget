@@ -27,6 +27,8 @@ A macOS widget that sits under the camera notch and shows live Claude and Codex 
 - Redesign: one black surface with a hairline between the columns, no glass tiles, glows, gradients or chips. Big tabular % numbers sit over thin flat bars. SF Pro is used for words and SF Mono for model, plan and countdowns. The mini rings are solid colour.
 - Dev aids: `CLAUDEX_PIN_EXPANDED=1` keeps the card open. `CLAUDEX_PIN_EXPANDED=1 CLAUDEX_SNAPSHOT=/path.png .build/debug/Claudex` renders the card to a PNG and quits (`ImageRenderer`, needs no screen-recording permission; the gear menu shows as a placeholder there).
 
+- The expanded card is now "Rings" (direction A from the design page https://claude.ai/artifact/XUTXW1pEQ5Qv2fivxEe13G). It has concentric rings filled by **% used**, to match Claude's `/usage`, with up to 3 rings: Session, Week, and model-scoped weeks parsed from the `limits` list (e.g. "Fable week"). The collapsed strip is unchanged at the user's request; its mini rings still show % left.
+
 ## Next steps
 - Get the user's reaction to the redesign. The collapsed pill was only touched for ring colour.
 - Manual checks still to do: click-through, Reduce Motion, Launch at Login (needs /Applications), and a display without a notch.

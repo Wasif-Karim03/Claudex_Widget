@@ -24,23 +24,67 @@ public struct ClaudeUsageResponse: Decodable, Sendable, Equatable {
         }
     }
 
+    /// One entry of the `limits` list. Only model-scoped weekly limits (e.g. a separate
+    /// weekly cap for one model) are used; the session and all-models week come from
+    /// `five_hour` / `seven_day`.
+    public struct Limit: Decodable, Sendable, Equatable {
+        public let kind: String?
+        public let percent: Double?
+        public let resetsAt: Date?
+        public let modelName: String?
+
+        enum CodingKeys: String, CodingKey {
+            case kind, percent, scope
+            case resetsAt = "resets_at"
+        }
+
+        public init(kind: String?, percent: Double?, resetsAt: Date?, modelName: String?) {
+            self.kind = kind
+            self.percent = percent
+            self.resetsAt = resetsAt
+            self.modelName = modelName
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            kind = try? c.decodeIfPresent(String.self, forKey: .kind)
+            percent = try? c.decodeIfPresent(Double.self, forKey: .percent)
+            resetsAt = try? c.decodeIfPresent(Date.self, forKey: .resetsAt)
+            modelName = (try? c.decodeIfPresent(Scope.self, forKey: .scope))??.model?.displayName
+        }
+
+        private struct Scope: Decodable {
+            struct Model: Decodable {
+                let displayName: String?
+                enum CodingKeys: String, CodingKey { case displayName = "display_name" }
+            }
+            let model: Model?
+        }
+    }
+
     public let fiveHour: Window?
     public let sevenDay: Window?
+    public let limits: [Limit]
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
+        case limits
     }
 
-    public init(fiveHour: Window?, sevenDay: Window?) {
+    public init(fiveHour: Window?, sevenDay: Window?, limits: [Limit] = []) {
         self.fiveHour = fiveHour
         self.sevenDay = sevenDay
+        self.limits = limits
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fiveHour = try? c.decodeIfPresent(Window.self, forKey: .fiveHour)
         sevenDay = try? c.decodeIfPresent(Window.self, forKey: .sevenDay)
+        // Entries that fail to decode are dropped rather than failing the response.
+        let raw = (try? c.decodeIfPresent([Lenient<Limit>].self, forKey: .limits)) ?? nil
+        limits = raw?.compactMap(\.value) ?? []
     }
 
     public static func decode(_ data: Data) throws -> ClaudeUsageResponse {
@@ -57,16 +101,30 @@ public struct ClaudeUsageResponse: Decodable, Sendable, Equatable {
         return try decoder.decode(ClaudeUsageResponse.self, from: data)
     }
 
+    /// Session, week (all models), then any per-model weekly limits, labelled as Claude
+    /// Code's `/usage` names them.
     public func toWindows() -> [UsageWindow] {
         var windows: [UsageWindow] = []
         if let w = fiveHour, let used = w.utilization {
-            windows.append(UsageWindow(id: "five_hour", label: "5h", usedPercent: used, resetsAt: w.resetsAt, windowMinutes: 300))
+            windows.append(UsageWindow(id: "five_hour", label: "Session", usedPercent: used, resetsAt: w.resetsAt, windowMinutes: 300))
         }
         if let w = sevenDay, let used = w.utilization {
             windows.append(UsageWindow(id: "seven_day", label: "Week", usedPercent: used, resetsAt: w.resetsAt, windowMinutes: 10080))
         }
+        for limit in limits where limit.kind == "weekly_scoped" {
+            guard let used = limit.percent, let model = limit.modelName, !model.isEmpty else { continue }
+            windows.append(UsageWindow(id: "weekly_\(model.lowercased())", label: "\(model) week", usedPercent: used,
+                                       resetsAt: limit.resetsAt, windowMinutes: 10080))
+        }
         return windows
     }
+}
+
+/// Decodes `T` when it can and yields nil otherwise, so one odd array element does not
+/// sink the rest.
+struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws { value = try? T(from: decoder) }
 }
 
 /// ISO 8601 parsing tolerant of 0–9 fractional digits and `Z` or `±hh:mm` offsets.

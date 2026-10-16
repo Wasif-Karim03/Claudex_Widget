@@ -32,6 +32,14 @@ enum Theme {
 
     static func tint(_ kind: ProviderKind) -> Color { colors(kind)[0] }
 
+    /// The tint 45% of the way to white: the inner (longer) window's ring.
+    static func innerTint(_ kind: ProviderKind) -> Color {
+        switch kind {
+        case .claude: Color(hex: 0xEAB4A3)
+        case .codex: Color(hex: 0xA6E8D6)
+        }
+    }
+
     /// SF Pro for words.
     static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
         .system(size: size, weight: weight)
