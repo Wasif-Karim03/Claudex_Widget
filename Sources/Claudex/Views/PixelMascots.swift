@@ -233,9 +233,7 @@ struct PixelMascot: View {
     private var live: Bool { animated && !reduceMotion }
 
     var body: some View {
-        // 8 fps matches the pixel step rate; idle breathing needs less. Keeps an
-        // always-on widget light.
-        TimelineView(PixelSchedule(live: live, fps: activity == .working ? 8 : 5)) { context in
+        TimelineView(PixelSchedule(live: live, fps: PixelSchedule.fps(for: activity))) { context in
             let t = live ? context.date.timeIntervalSinceReferenceDate : 0
             let pose = MascotPose(mood: mood, activity: activity, t: t, live: live)
             Canvas { gc, _ in
@@ -298,19 +296,38 @@ struct PixelMascot: View {
 }
 
 /// Ticks `fps` times a second while live; a single entry when paused.
+/// Ticks fall on a grid anchored to the reference date, and every rate divides 8, so all
+/// mascots on screen update in the same frames: one SwiftUI graph update per tick rather
+/// than one per mascot. That shared update is most of an always-on widget's CPU cost.
 private struct PixelSchedule: TimelineSchedule {
     let live: Bool
     let fps: Double
+
+    /// 8 fps matches the pixel step rate while working; idle breathing and blinks read
+    /// fine at 4, and sleep's slow drift at 2.
+    static func fps(for activity: Activity) -> Double {
+        switch activity {
+        case .working: 8
+        case .idle: 4
+        case .sleepy: 2
+        }
+    }
 
     func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnyIterator<Date> {
         guard live, mode != .lowFrequency else {
             var done = false
             return AnyIterator { defer { done = true }; return done ? nil : startDate }
         }
-        var next = startDate
+        let interval = 1.0 / fps
+        var tick = (startDate.timeIntervalSinceReferenceDate / interval).rounded(.up)
+        var first = true
         return AnyIterator {
-            defer { next = next.addingTimeInterval(1.0 / fps) }
-            return next
+            if first {
+                first = false
+                return startDate
+            }
+            defer { tick += 1 }
+            return Date(timeIntervalSinceReferenceDate: tick * interval)
         }
     }
 }

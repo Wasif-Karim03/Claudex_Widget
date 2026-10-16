@@ -150,7 +150,9 @@ public struct ClaudeSessionReader: Sendable {
                                isSubagent: file.isSubagent, modified: file.modified)
         }
         let headline = newest.flatMap { parsed($0).model }
-        cache.retain(paths: Set(liveFiles.map(\.url.path) + (newest.map { [$0.url.path] } ?? [])))
+        // Entries are small; keeping one per existing transcript means a session that goes
+        // idle and later resumes still has the model and cwd it recorded before.
+        cache.retain(paths: Set(files.map(\.url.path)))
         return Scan(live: live, headlineModel: headline, lastActivity: newest?.modified)
     }
 

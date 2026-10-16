@@ -45,7 +45,7 @@ import Testing
         let limits = try #require(reader.scan(now: now, cache: &cache, maxBytes: 1024).limits)
         #expect(limits.windows.first?.usedPercent == 90)
         #expect(limits.limitsRetained)
-        #expect(limits.usageStatus(now: now) == .ok)
+        #expect(limits.usageStatus(now: now, lastActivity: now.addingTimeInterval(-5)) == .ok)
     }
 
     @Test func olderRolloutReportedLaterReplacesRetainedLimits() throws {
@@ -70,17 +70,66 @@ import Testing
         #expect(!limits.limitsRetained)
     }
 
-    @Test func retainedLimitsGoStaleWhenNotRecentlyObserved() {
+    @Test func reportGoesStaleOnlyAfterResetOrLaterUse() {
         let now = Date()
-        let seen = now.addingTimeInterval(-(CodexParsed.retainedFreshFor + 1))
-        var parsed = CodexParsed(hasRateLimits: true)
+        let seen = now.addingTimeInterval(-3 * 3600)
+        var parsed = CodexParsed(windows: [UsageWindow(id: "primary", label: "5h", usedPercent: 40,
+                                                       resetsAt: now.addingTimeInterval(600), windowMinutes: 300)],
+                                 hasRateLimits: true)
         parsed.limitsObservedAt = seen
-        // Limits read from the tail are current however old their report.
-        #expect(parsed.usageStatus(now: now) == .ok)
+        // An old report with no use or reset since is still accurate, retained or not.
+        #expect(parsed.usageStatus(now: now, lastActivity: seen.addingTimeInterval(30)) == .ok)
         parsed.limitsRetained = true
-        #expect(parsed.usageStatus(now: now) == .stale(since: seen))
-        parsed.limitsObservedAt = now.addingTimeInterval(-60)
-        #expect(parsed.usageStatus(now: now) == .ok)
+        #expect(parsed.usageStatus(now: now, lastActivity: seen) == .ok)
+        // Codex used well after the report: stale since the report.
+        #expect(parsed.usageStatus(now: now, lastActivity: seen.addingTimeInterval(CodexParsed.freshFor + 1))
+            == .stale(since: seen))
+        // A window it describes has reset: stale even with no activity.
+        parsed.limitsRetained = false
+        #expect(parsed.usageStatus(now: now.addingTimeInterval(601), lastActivity: seen) == .stale(since: seen))
+    }
+
+    @Test func fallbackTakesLatestReportAmongOlderRollouts() throws {
+        let dir = try TempDir()
+        defer { dir.cleanup() }
+        let now = Date()
+        // Newest rollout has no limits. B is newer by mtime but reported earlier than C.
+        try dir.write("2026/10/16/rollout-a.jsonl", Self.filler(1)[0] + "\n", modified: now.addingTimeInterval(-5))
+        try dir.write("2026/10/15/rollout-b.jsonl", Self.limitsLine(used: 10, at: now.addingTimeInterval(-500)) + "\n",
+                      modified: now.addingTimeInterval(-50))
+        try dir.write("2026/10/14/rollout-c.jsonl", Self.limitsLine(used: 70, at: now.addingTimeInterval(-100)) + "\n",
+                      modified: now.addingTimeInterval(-90))
+        var cache = ParseCache<CodexParsed>()
+        let limits = try #require(CodexSessionReader(sessionsDir: dir.url).scan(now: now, cache: &cache).limits)
+        #expect(limits.windows.first?.usedPercent == 70)
+    }
+
+    @Test func olderRolloutReportedLaterReplacesTailLimits() throws {
+        let dir = try TempDir()
+        defer { dir.cleanup() }
+        let now = Date()
+        // A is newest by mtime (other activity) but its last report predates B's.
+        try dir.write("2026/10/16/rollout-a.jsonl", Self.limitsLine(used: 90, at: now.addingTimeInterval(-300)) + "\n"
+            + Self.filler(1)[0] + "\n", modified: now.addingTimeInterval(-5))
+        try dir.write("2026/10/15/rollout-b.jsonl", Self.limitsLine(used: 20, at: now.addingTimeInterval(-60)) + "\n",
+                      modified: now.addingTimeInterval(-60))
+        var cache = ParseCache<CodexParsed>()
+        let limits = try #require(CodexSessionReader(sessionsDir: dir.url).scan(now: now, cache: &cache).limits)
+        #expect(limits.windows.first?.usedPercent == 20)
+    }
+
+    @Test func codexHeadlineIsNeverAnotherSessionsModel() throws {
+        let dir = try TempDir()
+        defer { dir.cleanup() }
+        let now = Date()
+        let ctx = #"{"type":"turn_context","payload":{"cwd":"/p/B","model":"gpt-6.1-sol"}}"#
+        // The newest rollout has not recorded a model yet; an older live one has.
+        try dir.write("2026/10/16/rollout-new.jsonl", Self.filler(1)[0] + "\n", modified: now.addingTimeInterval(-5))
+        try dir.write("2026/10/16/rollout-old.jsonl", ctx + "\n", modified: now.addingTimeInterval(-30))
+        var cache = ParseCache<CodexParsed>()
+        let scan = CodexSessionReader(sessionsDir: dir.url).scan(now: now, cache: &cache)
+        #expect(scan.live.map(\.model) == [nil, "gpt-6.1-sol"])
+        #expect(scan.headlineModel == nil)
     }
 
     // MARK: Claude model and cwd (R2)
@@ -112,6 +161,28 @@ import Testing
         #expect(second.headlineModel == "claude-opus-5-5")
         #expect(second.live.first?.model == "claude-opus-5-5")
         #expect(second.live.first?.project == "Real Alpha")
+    }
+
+    @Test func claudeResumedSessionKeepsModelAfterGoingIdle() throws {
+        let dir = try TempDir()
+        defer { dir.cleanup() }
+        let now = Date()
+        let file = try dir.write("-p-Alpha/s.jsonl", Self.claudeLine(model: "claude-opus-5-5", cwd: "/p/Real Alpha") + "\n",
+                                 modified: now.addingTimeInterval(-20))
+        try dir.write("-p-Beta/t.jsonl", Self.claudeLine(model: "claude-sonnet-5-5", cwd: "/p/Beta") + "\n",
+                      modified: now.addingTimeInterval(-10))
+        let reader = ClaudeSessionReader(projectsDir: dir.url)
+        var cache = ParseCache<ClaudeSessionReader.Parsed>()
+        _ = reader.scan(now: now, cache: &cache, projectName: { _ in "decoded" }, maxBytes: 1024)
+
+        // Ten minutes later Alpha is neither live nor newest; then it resumes with a tail
+        // that no longer shows its model or cwd.
+        let later = now.addingTimeInterval(600)
+        _ = reader.scan(now: later, cache: &cache, projectName: { _ in "decoded" }, maxBytes: 1024)
+        try Self.append(Self.userFiller(20), to: file, modified: later.addingTimeInterval(5))
+        let scan = reader.scan(now: later.addingTimeInterval(6), cache: &cache, projectName: { _ in "decoded" }, maxBytes: 1024)
+        #expect(scan.headlineModel == "claude-opus-5-5")
+        #expect(scan.live.first?.project == "Real Alpha")
     }
 
     @Test func claudeHeadlineIsNeverAnotherSessionsModel() throws {

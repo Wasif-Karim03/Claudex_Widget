@@ -28,7 +28,7 @@ final class AppModel {
     @ObservationIgnored private var localTask: Task<Void, Never>?
     @ObservationIgnored private var clockTask: Task<Void, Never>?
     @ObservationIgnored private var claudeFetchedOnce = false
-    /// When a local scan last found Codex `rate_limits`; nil until the first one does.
+    /// When the Codex limits on show were reported; nil until a scan first finds some.
     @ObservationIgnored private var codexObservedAt: Date?
 
     static let localInterval: Duration = .seconds(3)
@@ -146,15 +146,15 @@ final class AppModel {
             return
         }
         codex.live = codexScan.live
-        codex.model = codexScan.headlineModel ?? codex.model
+        codex.model = codexScan.headlineModel
         codex.lastActivity = codexScan.lastActivity
         codex.isActive = CodexSessionReader.isActive(mtime: codexScan.lastActivity, now: current)
         if limits.hasRateLimits {
             codex.windows = limits.windows
             codex.planType = limits.planType
-            codex.lastUpdated = codexScan.lastActivity
-            codex.status = limits.usageStatus(now: current)
-            if case let .stale(since) = codex.status { codexObservedAt = since } else { codexObservedAt = current }
+            codex.lastUpdated = limits.limitsObservedAt ?? codexScan.lastActivity
+            codex.status = limits.usageStatus(now: current, lastActivity: codexScan.lastActivity)
+            codexObservedAt = codex.lastUpdated
         } else {
             codex.markUsageMissing(lastObserved: codexObservedAt, message: "No usage reported yet")
         }

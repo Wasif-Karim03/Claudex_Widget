@@ -28,15 +28,18 @@ public struct CodexParsed: Sendable, Equatable {
         self.hasRateLimits = hasRateLimits
     }
 
-    /// Retained limits older than this are shown as stale.
-    public static let retainedFreshFor: TimeInterval = 900
+    /// Codex reports limits throughout a turn; activity this long after the last report
+    /// means the report no longer reflects that use.
+    public static let freshFor: TimeInterval = 900
 
-    /// `.ok`, unless the limits are retained ones last reported more than
-    /// `retainedFreshFor` ago: then stale since that report.
-    public func usageStatus(now: Date) -> ProviderStatus {
-        guard limitsRetained, let observed = limitsObservedAt,
-              now.timeIntervalSince(observed) > Self.retainedFreshFor else { return .ok }
-        return .stale(since: observed)
+    /// Limits only change through use or a reset, so a report is stale (since it was made)
+    /// once a window it describes has reset, or once Codex was used more than `freshFor`
+    /// after it. However old, a report with neither is still accurate.
+    public func usageStatus(now: Date, lastActivity: Date?) -> ProviderStatus {
+        guard hasRateLimits, let observed = limitsObservedAt else { return .ok }
+        let resetSince = windows.contains { $0.resetsAt.map { $0 <= now } ?? false }
+        let usedSince = lastActivity.map { $0.timeIntervalSince(observed) > Self.freshFor } ?? false
+        return resetSince || usedSince ? .stale(since: observed) : .ok
     }
 
     /// Takes `other`'s limits, keeping this value's model and cwd.
@@ -90,22 +93,28 @@ public struct CodexSessionReader: Sendable {
         return files
     }
 
-    /// Reads the newest rollout; if it has no `rate_limits`, limits come from the next
-    /// newest candidate that does, while model stays the newest file's.
+    /// Reads the candidates (newest first); see `withLatestLimits` for which limits win.
     public func read(candidates: [(url: URL, modified: Date)], maxBytes: Int = 65_536) -> Result? {
         guard let newest = candidates.first else { return nil }
-        var parsed = Self.parseFile(newest.url, modified: newest.modified, maxBytes: maxBytes)
-        if !parsed.hasRateLimits {
-            for older in candidates.dropFirst() {
-                let other = Self.parse(lines: JSONLTail.lines(of: older.url, maxBytes: maxBytes),
-                                       fallbackAnchor: older.modified)
-                if other.hasRateLimits {
-                    parsed.adoptLimits(from: other)
-                    break
-                }
+        let parsed = candidates.map { Self.parseFile($0.url, modified: $0.modified, maxBytes: maxBytes) }
+        return Result(file: newest.url, modified: newest.modified, parsed: Self.withLatestLimits(parsed))
+    }
+
+    /// The first (newest) rollout's parse, with the most recently reported limits among
+    /// all of `parsed` (newest first). Limits are account-wide, so the latest report wins
+    /// whichever session made it; on equal report times the newer rollout wins. Model and
+    /// cwd always stay the newest rollout's.
+    public static func withLatestLimits(_ parsed: [CodexParsed]) -> CodexParsed {
+        guard var result = parsed.first else { return CodexParsed() }
+        let latest = parsed.enumerated()
+            .filter { $0.element.hasRateLimits }
+            .max { a, b in
+                let ta = a.element.limitsObservedAt ?? .distantPast
+                let tb = b.element.limitsObservedAt ?? .distantPast
+                return ta != tb ? ta < tb : a.offset > b.offset
             }
-        }
-        return Result(file: newest.url, modified: newest.modified, parsed: parsed)
+        if let latest, latest.offset != 0 { result.adoptLimits(from: latest.element) }
+        return result
     }
 
     /// Parses a rollout's tail. Model and cwd come from the tail when it has them; else
@@ -153,11 +162,11 @@ public struct CodexSessionReader: Sendable {
 
     public struct Scan: Sendable, Equatable {
         public var live: [LiveSession]
-        /// Model of the most recently active session, else of the newest rollout.
+        /// Model of the newest rollout (the most recently active session); nil when it
+        /// never recorded one, never another session's.
         public var headlineModel: String?
         public var lastActivity: Date?
-        /// The newest rollout's limits (from its tail, else retained from earlier parses);
-        /// an older rollout's only when the newest has none or reported them later.
+        /// The most recently reported limits among the newest few rollouts.
         public var limits: CodexParsed?
         public var hasSessions: Bool
     }
@@ -185,25 +194,11 @@ public struct CodexSessionReader: Sendable {
         }
 
         let candidates = Array(all.prefix(Self.candidateCount))
-        var limits = parsed(newest)
-        if !limits.hasRateLimits {
-            for candidate in candidates.dropFirst() {
-                let older = parsed(candidate)
-                guard older.hasRateLimits else { continue }
-                limits.adoptLimits(from: older)
-                break
-            }
-        } else if limits.limitsRetained {
-            // Retained limits give way only to ones an older rollout reported after them.
-            let retainedAt = limits.limitsObservedAt ?? .distantPast
-            let later = candidates.dropFirst().map(parsed)
-                .filter { $0.hasRateLimits && ($0.limitsObservedAt ?? .distantPast) > retainedAt }
-                .max { ($0.limitsObservedAt ?? .distantPast) < ($1.limitsObservedAt ?? .distantPast) }
-            if let later { limits.adoptLimits(from: later) }
-        }
-        let headline = live.first(where: { $0.model != nil })?.model ?? limits.model
-        cache.retain(paths: Set(liveFiles.map(\.url.path) + candidates.map(\.url.path)))
-        return Scan(live: live, headlineModel: headline, lastActivity: newest.modified, limits: limits, hasSessions: true)
+        let limits = Self.withLatestLimits(candidates.map(parsed))
+        // Entries are small; keeping one per existing rollout means a session that goes
+        // idle and later resumes still has the model and limits it reported before.
+        cache.retain(paths: Set(all.map(\.url.path)))
+        return Scan(live: live, headlineModel: limits.model, lastActivity: newest.modified, limits: limits, hasSessions: true)
     }
 
     /// Last `rate_limits` across lines wins. `resets_in_seconds` is anchored to that line's
