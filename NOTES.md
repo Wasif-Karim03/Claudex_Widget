@@ -21,10 +21,11 @@ A macOS widget under the camera notch that shows live Claude and Codex usage (% 
 ## Next steps
 1. Ask the user whether the collapsed ring should switch to % used (look unchanged).
 2. If the user still sees a mismatch, get a screenshot saved outside /var/folders (macOS blocks reading that folder).
-3. Manual checks still to do: click-through, Reduce Motion, Launch at Login (needs /Applications), and a display without a notch.
+3. Manual checks still to do: click-through, Reduce Motion, and a display without a notch.
 
 ## Key files and commands
 - Data: `Sources/ClaudexCore/Claude/ClaudeUsage.swift` (API decode, `limits`), `ClaudeUsageClient.swift`, `Codex/CodexSessionReader.swift`, `LiveSessions.swift`.
 - UI: `Sources/Claudex/Views/ProviderCard.swift` (`RingDial`, `RingLegendRow`), `RootView.swift`, `Theme.swift`, `PixelMascots.swift`. Card height: `NotchGeometry.swift` `cardBaseHeight` (220).
-- Run: `./scripts/bundle.sh && open build/Claudex.app`. Test: `swift test`.
+- Install (the default way to run it): `./scripts/install.sh` builds, copies to /Applications and launches. The first run from /Applications adds the app to Login Items (once only, via the `didAutoEnableLaunchAtLogin` default). It is installed and enabled as of 2026-10-16.
+- Dev run: `./scripts/bundle.sh && open build/Claudex.app`. Test: `swift test`.
 - Render the card without screen permission: `CLAUDEX_PIN_EXPANDED=1 CLAUDEX_SNAPSHOT=/path.png .build/debug/Claudex` (the gear shows as a placeholder in renders).

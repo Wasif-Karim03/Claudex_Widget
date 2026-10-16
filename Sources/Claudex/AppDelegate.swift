@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 @MainActor
@@ -29,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         layoutPanel()
         panel.orderFrontRegardless()
         model.start()
+        enableLaunchAtLoginOnFirstRun()
         if pinExpanded { setExpanded(true) }
         if let path = ProcessInfo.processInfo.environment["CLAUDEX_SNAPSHOT"] { snapshot(to: path) }
 
@@ -112,6 +114,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         withAnimation(Theme.morphAnimation(reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)) {
             model.isExpanded = expanded
         }
+    }
+
+    /// The first time Claudex runs from /Applications it adds itself to Login Items, so an
+    /// installed copy starts with the Mac. Done once only: switching it off in the menu
+    /// sticks.
+    private func enableLaunchAtLoginOnFirstRun() {
+        let key = "didAutoEnableLaunchAtLogin"
+        guard Bundle.main.bundleURL.path.hasPrefix("/Applications/"),
+              !UserDefaults.standard.bool(forKey: key) else { return }
+        if SMAppService.mainApp.status != .enabled { try? SMAppService.mainApp.register() }
+        let status = SMAppService.mainApp.status
+        if status == .enabled || status == .requiresApproval { UserDefaults.standard.set(true, forKey: key) }
     }
 
     /// Development aid: renders the expanded card to a PNG a few seconds after launch
