@@ -25,12 +25,15 @@ public struct SessionFile: Sendable, Equatable {
     public let modified: Date
     public let project: String
     public let isSubagent: Bool
+    /// Size in bytes, when the stat reported it.
+    public let size: Int?
 
-    public init(url: URL, modified: Date, project: String, isSubagent: Bool) {
+    public init(url: URL, modified: Date, project: String, isSubagent: Bool, size: Int? = nil) {
         self.url = url
         self.modified = modified
         self.project = project
         self.isSubagent = isSubagent
+        self.size = size
     }
 }
 

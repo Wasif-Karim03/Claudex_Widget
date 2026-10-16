@@ -58,7 +58,7 @@ struct ProviderCard: View {
                         .font(Theme.font(14, .bold))
                         .foregroundStyle(Theme.primaryText)
                     Spacer(minLength: 0)
-                    if let plan = snapshot.planType {
+                    if let plan = snapshot.visiblePlan {
                         PlanBadge(text: plan, kind: snapshot.kind)
                     }
                 }

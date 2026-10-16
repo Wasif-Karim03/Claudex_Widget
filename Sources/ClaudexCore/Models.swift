@@ -108,6 +108,9 @@ public struct ProviderSnapshot: Sendable, Equatable {
         }
     }
 
+    /// Plan for the header badge; hidden while signed out.
+    public var visiblePlan: String? { status == .needsSignIn ? nil : planType }
+
     public var isStale: Bool {
         if case .stale = status { return true }
         return false

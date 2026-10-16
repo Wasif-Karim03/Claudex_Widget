@@ -89,12 +89,13 @@ final class AppModel {
         switch result {
         case let .ok(windows, plan):
             claude.windows = windows
-            claude.planType = plan ?? claude.planType
+            claude.planType = plan
             claude.lastUpdated = current
             claude.status = .ok
             claudeFetchedOnce = true
         case .needsSignIn:
             claude.windows = []
+            claude.planType = nil
             claude.status = .needsSignIn
         case .throttled:
             break
@@ -127,7 +128,7 @@ final class AppModel {
 
         let claudeScan = result.claude
         claude.live = claudeScan.live
-        claude.model = claudeScan.headlineModel ?? claude.model
+        claude.model = claudeScan.headlineModel
         claude.lastActivity = claudeScan.lastActivity
         claude.isActive = ClaudeSessionReader.isActive(mtime: claudeScan.lastActivity, now: current)
 
@@ -152,8 +153,8 @@ final class AppModel {
             codex.windows = limits.windows
             codex.planType = limits.planType
             codex.lastUpdated = codexScan.lastActivity
-            codex.status = .ok
-            codexObservedAt = current
+            codex.status = limits.usageStatus(now: current)
+            if case let .stale(since) = codex.status { codexObservedAt = since } else { codexObservedAt = current }
         } else {
             codex.markUsageMissing(lastObserved: codexObservedAt, message: "No usage reported yet")
         }

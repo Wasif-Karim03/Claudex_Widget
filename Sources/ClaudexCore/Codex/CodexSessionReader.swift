@@ -13,6 +13,11 @@ public struct CodexParsed: Sendable, Equatable {
     public var hasRateLimits: Bool
     public var modelSource: Source?
     public var cwdSource: Source?
+    /// When the limits were reported: their line's `timestamp`, else the file mtime.
+    public var limitsObservedAt: Date?
+    /// True when the limits were carried over from an earlier parse of this file because
+    /// they have since scrolled out of the tail window.
+    public var limitsRetained = false
 
     public init(windows: [UsageWindow] = [], planType: String? = nil, model: String? = nil,
                 cwd: String? = nil, hasRateLimits: Bool = false) {
@@ -21,6 +26,26 @@ public struct CodexParsed: Sendable, Equatable {
         self.model = model
         self.cwd = cwd
         self.hasRateLimits = hasRateLimits
+    }
+
+    /// Retained limits older than this are shown as stale.
+    public static let retainedFreshFor: TimeInterval = 900
+
+    /// `.ok`, unless the limits are retained ones last reported more than
+    /// `retainedFreshFor` ago: then stale since that report.
+    public func usageStatus(now: Date) -> ProviderStatus {
+        guard limitsRetained, let observed = limitsObservedAt,
+              now.timeIntervalSince(observed) > Self.retainedFreshFor else { return .ok }
+        return .stale(since: observed)
+    }
+
+    /// Takes `other`'s limits, keeping this value's model and cwd.
+    mutating func adoptLimits(from other: CodexParsed) {
+        windows = other.windows
+        planType = other.planType
+        hasRateLimits = other.hasRateLimits
+        limitsObservedAt = other.limitsObservedAt
+        limitsRetained = other.limitsRetained
     }
 }
 
@@ -75,9 +100,7 @@ public struct CodexSessionReader: Sendable {
                 let other = Self.parse(lines: JSONLTail.lines(of: older.url, maxBytes: maxBytes),
                                        fallbackAnchor: older.modified)
                 if other.hasRateLimits {
-                    parsed.windows = other.windows
-                    parsed.planType = other.planType
-                    parsed.hasRateLimits = true
+                    parsed.adoptLimits(from: other)
                     break
                 }
             }
@@ -90,6 +113,10 @@ public struct CodexSessionReader: Sendable {
     /// value never replaces a newer tail one. Only with no prior observation is the head
     /// read: long sessions log `turn_context`/`session_meta` near the start, beyond the
     /// tail window, and that best effort is all a first scan has.
+    /// The head fallback is deliberate: real rollouts record model and cwd only near the
+    /// start, so reading the tail alone would show "—" for most sessions.
+    /// Rate limits likewise come from the tail, else `previous`'s are retained (with their
+    /// observation time and `limitsRetained` set) rather than dropped.
     /// `modified` (the file mtime, looked up when nil) anchors `resets_in_seconds` on lines
     /// without a `timestamp`; it only changes when the content does, so reparses agree.
     public static func parseFile(_ url: URL, modified: Date? = nil, maxBytes: Int = 65_536,
@@ -105,6 +132,10 @@ public struct CodexSessionReader: Sendable {
         if parsed.cwd == nil, let cwd = previous?.cwd {
             parsed.cwd = cwd
             parsed.cwdSource = previous?.cwdSource
+        }
+        if !parsed.hasRateLimits, let previous, previous.hasRateLimits {
+            parsed.adoptLimits(from: previous)
+            parsed.limitsRetained = true
         }
         if parsed.model == nil || parsed.cwd == nil {
             let head = parse(lines: JSONLTail.headLines(of: url, maxBytes: maxBytes), fallbackAnchor: anchor)
@@ -125,7 +156,8 @@ public struct CodexSessionReader: Sendable {
         /// Model of the most recently active session, else of the newest rollout.
         public var headlineModel: String?
         public var lastActivity: Date?
-        /// Limits from the newest rollout that reports them (see `read`).
+        /// The newest rollout's limits (from its tail, else retained from earlier parses);
+        /// an older rollout's only when the newest has none or reported them later.
         public var limits: CodexParsed?
         public var hasSessions: Bool
     }
@@ -158,11 +190,16 @@ public struct CodexSessionReader: Sendable {
             for candidate in candidates.dropFirst() {
                 let older = parsed(candidate)
                 guard older.hasRateLimits else { continue }
-                limits.windows = older.windows
-                limits.planType = older.planType
-                limits.hasRateLimits = true
+                limits.adoptLimits(from: older)
                 break
             }
+        } else if limits.limitsRetained {
+            // Retained limits give way only to ones an older rollout reported after them.
+            let retainedAt = limits.limitsObservedAt ?? .distantPast
+            let later = candidates.dropFirst().map(parsed)
+                .filter { $0.hasRateLimits && ($0.limitsObservedAt ?? .distantPast) > retainedAt }
+                .max { ($0.limitsObservedAt ?? .distantPast) < ($1.limitsObservedAt ?? .distantPast) }
+            if let later { limits.adoptLimits(from: later) }
         }
         let headline = live.first(where: { $0.model != nil })?.model ?? limits.model
         cache.retain(paths: Set(liveFiles.map(\.url.path) + candidates.map(\.url.path)))
@@ -198,6 +235,7 @@ public struct CodexSessionReader: Sendable {
         var result = CodexParsed(model: contextModel ?? anyModel, cwd: contextCwd ?? metaCwd)
         guard let limits = rateLimits else { return result }
         result.hasRateLimits = true
+        result.limitsObservedAt = limitsAnchor
         result.planType = (limits["plan_type"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         for key in ["primary", "secondary"] {
             if let raw = limits[key] as? [String: Any], let parsed = makeWindow(id: key, from: raw, anchor: limitsAnchor) {
